@@ -75,7 +75,7 @@ export default function Onboarding() {
               </div>
               {step.step === currentStep + 1 && (
                 <button
-                  onClick={() => toast.info('Feature coming soon!')}
+                  onClick={() => toast('Feature coming soon!')}
                   className="btn btn-primary"
                 >
                   Start
