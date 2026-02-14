@@ -1,0 +1,14 @@
+{
+  "name": "careops-platform",
+  "version": "1.0.0",
+  "description": "Unified Operations Platform for Service-Based Businesses",
+  "scripts": {
+    "dev": "concurrently \"npm run server:dev\" \"npm run client:dev\"",
+    "server:dev": "cd backend && npm run dev",
+    "client:dev": "cd frontend && npm run dev",
+    "install:all": "npm install && cd backend && npm install && cd ../frontend && npm install"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  }
+}

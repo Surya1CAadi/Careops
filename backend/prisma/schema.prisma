@@ -1,0 +1,464 @@
+// Prisma schema for CareOps Platform
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================
+// WORKSPACE & USERS
+// ============================================
+
+model Workspace {
+  id                String   @id @default(uuid())
+  name              String
+  address           String?
+  timezone          String   @default("UTC")
+  contactEmail      String
+  isActive          Boolean  @default(false)
+  onboardingStep    Int      @default(0)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  // Relations
+  users             User[]
+  contacts          Contact[]
+  bookings          Booking[]
+  bookingTypes      BookingType[]
+  forms             Form[]
+  inventory         InventoryItem[]
+  conversations     Conversation[]
+  automations       Automation[]
+  integrations      Integration[]
+  alerts            Alert[]
+  
+  @@index([isActive])
+}
+
+enum UserRole {
+  OWNER
+  STAFF
+}
+
+model User {
+  id              String     @id @default(uuid())
+  email           String     @unique
+  password        String
+  firstName       String
+  lastName        String
+  role            UserRole   @default(STAFF)
+  isActive        Boolean    @default(true)
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+
+  // Relations
+  workspaceId     String
+  workspace       Workspace  @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  
+  messages        Message[]
+  bookingsManaged Booking[]  @relation("BookingManager")
+  permissions     Permission[]
+  
+  @@index([workspaceId])
+  @@index([email])
+}
+
+model Permission {
+  id          String   @id @default(uuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  canAccessInbox      Boolean @default(false)
+  canManageBookings   Boolean @default(false)
+  canViewForms        Boolean @default(false)
+  canViewInventory    Boolean @default(false)
+  
+  @@unique([userId])
+}
+
+// ============================================
+// CONTACTS & CONVERSATIONS
+// ============================================
+
+model Contact {
+  id              String   @id @default(uuid())
+  firstName       String
+  lastName        String?
+  email           String?
+  phone           String?
+  address         String?
+  city            String?
+  state           String?
+  zipCode         String?
+  notes           String?
+  tags            String[] @default([])
+  status          String   @default("ACTIVE") // "ACTIVE", "INACTIVE", "LEAD"
+  source          String?  // "form", "booking", "manual"
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  // Relations
+  workspaceId     String
+  workspace       Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  
+  bookings        Booking[]
+  conversations   Conversation[]
+  formSubmissions FormSubmission[]
+  
+  @@index([workspaceId])
+  @@index([email])
+  @@index([status])
+}
+
+model Conversation {
+  id              String   @id @default(uuid())
+  status          String   @default("active") // "active", "archived"
+  lastMessageAt   DateTime @default(now())
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  // Relations
+  workspaceId     String
+  workspace       Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  
+  contactId       String
+  contact         Contact   @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  
+  messages        Message[]
+  
+  @@index([workspaceId])
+  @@index([contactId])
+  @@index([lastMessageAt])
+}
+
+enum MessageChannel {
+  EMAIL
+  SMS
+  INTERNAL
+}
+
+enum MessageDirection {
+  INBOUND
+  OUTBOUND
+}
+
+model Message {
+  id              String           @id @default(uuid())
+  channel         MessageChannel
+  direction       MessageDirection
+  subject         String?
+  body            String
+  isAutomated     Boolean          @default(false)
+  isRead          Boolean          @default(false)
+  sentAt          DateTime         @default(now())
+  createdAt       DateTime         @default(now())
+
+  // Relations
+  conversationId  String
+  conversation    Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  
+  sentById        String?
+  sentBy          User?        @relation(fields: [sentById], references: [id])
+  
+  @@index([conversationId])
+  @@index([sentAt])
+}
+
+// ============================================
+// BOOKINGS
+// ============================================
+
+model BookingType {
+  id              String   @id @default(uuid())
+  name            String
+  description     String?
+  duration        Int      // in minutes
+  location        String?
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  // Relations
+  workspaceId     String
+  workspace       Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  
+  bookings        Booking[]
+  availability    Availability[]
+  forms           BookingTypeForm[]
+  inventoryUsage  InventoryUsage[]
+  
+  @@index([workspaceId])
+}
+
+model Availability {
+  id              String   @id @default(uuid())
+  dayOfWeek       Int      // 0-6 (Sunday-Saturday)
+  startTime       String   // HH:MM format
+  endTime         String   // HH:MM format
+  isActive        Boolean  @default(true)
+
+  // Relations
+  bookingTypeId   String
+  bookingType     BookingType @relation(fields: [bookingTypeId], references: [id], onDelete: Cascade)
+  
+  @@index([bookingTypeId])
+}
+
+enum BookingStatus {
+  PENDING
+  CONFIRMED
+  COMPLETED
+  NO_SHOW
+  CANCELLED
+}
+
+model Booking {
+  id              String        @id @default(uuid())
+  title           String
+  description     String?
+  startTime       DateTime
+  endTime         DateTime
+  location        String?
+  status          BookingStatus @default(PENDING)
+  notes           String?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  // Relations
+  workspaceId     String
+  workspace       Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  
+  contactId       String?
+  contact         Contact?     @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  
+  bookingTypeId   String?
+  bookingType     BookingType? @relation(fields: [bookingTypeId], references: [id])
+  
+  managedById     String?
+  managedBy       User?        @relation("BookingManager", fields: [managedById], references: [id])
+  
+  formSubmissions FormSubmission[]
+  
+  @@index([workspaceId])
+  @@index([contactId])
+  @@index([startTime])
+  @@index([status])
+}
+
+// ============================================
+// FORMS
+// ============================================
+
+enum FormType {
+  INTAKE
+  AGREEMENT
+  DOCUMENT
+}
+
+model Form {
+  id              String   @id @default(uuid())
+  name            String
+  description     String?
+  type            FormType
+  fields          Json     // Array of form field definitions
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  // Relations
+  workspaceId     String
+  workspace       Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  
+  bookingTypes    BookingTypeForm[]
+  submissions     FormSubmission[]
+  
+  @@index([workspaceId])
+}
+
+model BookingTypeForm {
+  id              String   @id @default(uuid())
+  order           Int      @default(0)
+  isRequired      Boolean  @default(true)
+
+  bookingTypeId   String
+  bookingType     BookingType @relation(fields: [bookingTypeId], references: [id], onDelete: Cascade)
+  
+  formId          String
+  form            Form     @relation(fields: [formId], references: [id], onDelete: Cascade)
+  
+  @@unique([bookingTypeId, formId])
+}
+
+enum FormSubmissionStatus {
+  PENDING
+  COMPLETED
+  OVERDUE
+}
+
+model FormSubmission {
+  id              String               @id @default(uuid())
+  status          FormSubmissionStatus @default(PENDING)
+  data            Json?                // Submitted form data
+  submittedAt     DateTime?
+  dueDate         DateTime?
+  createdAt       DateTime             @default(now())
+  updatedAt       DateTime             @updatedAt
+
+  // Relations
+  formId          String
+  form            Form     @relation(fields: [formId], references: [id])
+  
+  contactId       String
+  contact         Contact  @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  
+  bookingId       String?
+  booking         Booking? @relation(fields: [bookingId], references: [id])
+  
+  @@index([contactId])
+  @@index([status])
+}
+
+// ============================================
+// INVENTORY
+// ============================================
+
+model InventoryItem {
+  id              String   @id @default(uuid())
+  name            String
+  description     String?
+  quantity        Int
+  lowStockThreshold Int    @default(10)
+  unit            String?  // "pieces", "liters", etc.
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  // Relations
+  workspaceId     String
+  workspace       Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  
+  usage           InventoryUsage[]
+  
+  @@index([workspaceId])
+}
+
+model InventoryUsage {
+  id              String   @id @default(uuid())
+  quantityUsed    Int
+  usedAt          DateTime @default(now())
+
+  inventoryItemId String
+  inventoryItem   InventoryItem @relation(fields: [inventoryItemId], references: [id], onDelete: Cascade)
+  
+  bookingTypeId   String
+  bookingType     BookingType   @relation(fields: [bookingTypeId], references: [id])
+  
+  @@index([inventoryItemId])
+}
+
+// ============================================
+// AUTOMATIONS
+// ============================================
+
+enum AutomationTrigger {
+  NEW_CONTACT
+  BOOKING_CREATED
+  BOOKING_REMINDER
+  FORM_PENDING
+  INVENTORY_LOW
+}
+
+enum AutomationAction {
+  SEND_EMAIL
+  SEND_SMS
+  CREATE_ALERT
+}
+
+model Automation {
+  id              String            @id @default(uuid())
+  name            String
+  trigger         AutomationTrigger
+  action          AutomationAction
+  config          Json              // Configuration for the action
+  isActive        Boolean           @default(true)
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+
+  // Relations
+  workspaceId     String
+  workspace       Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  
+  @@index([workspaceId])
+  @@index([trigger])
+}
+
+// ============================================
+// INTEGRATIONS
+// ============================================
+
+enum IntegrationType {
+  EMAIL
+  SMS
+  CALENDAR
+  STORAGE
+  WEBHOOK
+}
+
+model Integration {
+  id              String          @id @default(uuid())
+  type            IntegrationType
+  provider        String          // "sendgrid", "twilio", "google", etc.
+  config          Json            // API keys, settings, etc. (encrypted)
+  isActive        Boolean         @default(true)
+  lastSyncAt      DateTime?
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+
+  // Relations
+  workspaceId     String
+  workspace       Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  
+  @@index([workspaceId])
+  @@index([type])
+}
+
+// ============================================
+// ALERTS
+// ============================================
+
+enum AlertType {
+  MISSED_MESSAGE
+  UNCONFIRMED_BOOKING
+  OVERDUE_FORM
+  LOW_INVENTORY
+  INTEGRATION_FAILURE
+}
+
+enum AlertPriority {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+model Alert {
+  id              String        @id @default(uuid())
+  type            AlertType
+  priority        AlertPriority @default(MEDIUM)
+  title           String
+  message         String
+  isRead          Boolean       @default(false)
+  linkTo          String?       // URL to relevant resource
+  createdAt       DateTime      @default(now())
+
+  // Relations
+  workspaceId     String
+  workspace       Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  
+  @@index([workspaceId])
+  @@index([isRead])
+  @@index([createdAt])
+}
